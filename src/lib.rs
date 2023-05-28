@@ -1,8 +1,18 @@
 use winit::{
+    dpi::PhysicalPosition,
     event::{self, *},
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
+
+struct VisualState {
+    color: wgpu::Color,
+    color_index: usize,
+}
+
+struct InputState {
+    mouse_position: PhysicalPosition<f64>,
+}
 
 struct State {
     surface: wgpu::Surface,
@@ -11,6 +21,8 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     window: Window,
+    visuals: VisualState,
+    inputs: InputState,
 }
 
 impl State {
@@ -79,6 +91,20 @@ impl State {
         // Also fun!
         println!("Surface Configuration:\n\t{:?}", config);
 
+        let visuals = VisualState {
+            color: wgpu::Color {
+                r: 0.1,
+                g: 0.2,
+                b: 0.3,
+                a: 1.0,
+            },
+            color_index: 0,
+        };
+
+        let inputs = InputState {
+            mouse_position: PhysicalPosition { x: 0.0, y: 0.0 },
+        };
+
         Self {
             surface,
             device,
@@ -86,6 +112,8 @@ impl State {
             config,
             size,
             window,
+            visuals,
+            inputs,
         }
     }
 
@@ -103,11 +131,46 @@ impl State {
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
+        println!("{:?}", event);
+        match event {
+            WindowEvent::CursorMoved { position, .. } => {
+                self.inputs.mouse_position = *position;
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => {
+                self.visuals.color_index += 1;
+                if self.visuals.color_index > 1 {
+                    self.visuals.color_index = 0;
+                }
+            }
+            _ => {}
+        }
+        if let WindowEvent::CursorMoved { position, .. } = event {
+            self.inputs.mouse_position = *position;
+        }
+
         false
     }
 
     fn update(&mut self) {
-        // todo!()
+        self.visuals.color = if self.visuals.color_index == 0 {
+            wgpu::Color {
+                r: 0.1,
+                g: 0.2,
+                b: 0.3,
+                a: 1.0,
+            }
+        } else {
+            wgpu::Color {
+                r: (self.inputs.mouse_position.x / self.size.width as f64 * std::f64::consts::PI).cos().abs(),
+                g: (self.inputs.mouse_position.y / self.size.height as f64 * std::f64::consts::PI).sin().abs(),
+                b: ((self.inputs.mouse_position.x + self.inputs.mouse_position.y) / (self.size.width + self.size.height) as f64 * std::f64::consts::PI).cos().abs(),
+                a: 1.0,
+            }
+        }
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -127,12 +190,7 @@ impl State {
                 view: &view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.1,
-                        g: 0.2,
-                        b: 0.3,
-                        a: 1.0,
-                    }),
+                    load: wgpu::LoadOp::Clear(self.visuals.color),
                     store: true,
                 },
             })],
@@ -147,18 +205,13 @@ impl State {
     }
 }
 
-fn initialize_winit() -> (EventLoop<()>, Window) {
+pub async fn run() {
     env_logger::init();
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("eight ball pool")
+        .with_title("Biljard")
         .build(&event_loop)
         .unwrap();
-    (event_loop, window)
-}
-
-pub async fn run() {
-    let (event_loop, window) = initialize_winit();
 
     let mut state = State::new(window).await;
 

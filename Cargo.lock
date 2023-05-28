@@ -3,6 +3,17 @@
 version = 3
 
 [[package]]
+name = "Biljard"
+version = "0.1.0"
+dependencies = [
+ "env_logger",
+ "log",
+ "pollster",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
 name = "ab_glyph"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -126,17 +137,6 @@ dependencies = [
  "miniz_oxide 0.6.2",
  "object",
  "rustc-demangle",
-]
-
-[[package]]
-name = "billard"
-version = "0.1.0"
-dependencies = [
- "env_logger",
- "log",
- "pollster",
- "wgpu",
- "winit",
 ]
 
 [[package]]
