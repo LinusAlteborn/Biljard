@@ -1,4 +1,4 @@
-use Biljard::run;
+use biljard::run;
 
 fn main() {
     pollster::block_on(run());

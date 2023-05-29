@@ -1,9 +1,13 @@
+use wgpu::include_wgsl;
 use winit::{
     dpi::PhysicalPosition,
-    event::{self, *},
+    event::*,
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
+
+// I don't think State should own VisualState and InputState.
+// It might be a good idea to split it up more.
 
 struct VisualState {
     color: wgpu::Color,
@@ -20,9 +24,10 @@ struct State {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
+    render_pipeline: wgpu::RenderPipeline,
     window: Window,
-    visuals: VisualState,
-    inputs: InputState,
+    visual_state: VisualState,
+    input_state: InputState,
 }
 
 impl State {
@@ -91,19 +96,48 @@ impl State {
         // Also fun!
         println!("Surface Configuration:\n\t{:?}", config);
 
-        let visuals = VisualState {
-            color: wgpu::Color {
-                r: 0.1,
-                g: 0.2,
-                b: 0.3,
-                a: 1.0,
-            },
-            color_index: 0,
-        };
+        let shader = device.create_shader_module(include_wgsl!("shader.wgsl"));
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layput"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
 
-        let inputs = InputState {
-            mouse_position: PhysicalPosition { x: 0.0, y: 0.0 },
-        };
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        });
 
         Self {
             surface,
@@ -111,9 +145,15 @@ impl State {
             queue,
             config,
             size,
+            render_pipeline,
             window,
-            visuals,
-            inputs,
+            visual_state: VisualState {
+                color: wgpu::Color::BLACK,
+                color_index: 0,
+            },
+            input_state: InputState {
+                mouse_position: PhysicalPosition { x: 0.0, y: 0.0 },
+            },
         }
     }
 
@@ -131,32 +171,34 @@ impl State {
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
-        println!("{:?}", event);
+        if self.visual_state.color_index == 1 {
+            println!("{:?}", event);
+        }
         match event {
             WindowEvent::CursorMoved { position, .. } => {
-                self.inputs.mouse_position = *position;
+                self.input_state.mouse_position = *position;
             }
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 button: MouseButton::Left,
                 ..
             } => {
-                self.visuals.color_index += 1;
-                if self.visuals.color_index > 1 {
-                    self.visuals.color_index = 0;
+                self.visual_state.color_index += 1;
+                if self.visual_state.color_index > 1 {
+                    self.visual_state.color_index = 0;
                 }
             }
             _ => {}
         }
         if let WindowEvent::CursorMoved { position, .. } = event {
-            self.inputs.mouse_position = *position;
+            self.input_state.mouse_position = *position;
         }
 
         false
     }
 
     fn update(&mut self) {
-        self.visuals.color = if self.visuals.color_index == 0 {
+        self.visual_state.color = if self.visual_state.color_index == 0 {
             wgpu::Color {
                 r: 0.1,
                 g: 0.2,
@@ -165,9 +207,19 @@ impl State {
             }
         } else {
             wgpu::Color {
-                r: (self.inputs.mouse_position.x / self.size.width as f64 * std::f64::consts::PI).cos().abs(),
-                g: (self.inputs.mouse_position.y / self.size.height as f64 * std::f64::consts::PI).sin().abs(),
-                b: ((self.inputs.mouse_position.x + self.inputs.mouse_position.y) / (self.size.width + self.size.height) as f64 * std::f64::consts::PI).cos().abs(),
+                r: (self.input_state.mouse_position.x / self.size.width as f64
+                    * std::f64::consts::PI)
+                    .acos()
+                    .abs(),
+                g: (self.input_state.mouse_position.y / self.size.height as f64
+                    * std::f64::consts::PI)
+                    .asin()
+                    .abs(),
+                b: (-(self.input_state.mouse_position.x + self.input_state.mouse_position.y)
+                    / (self.size.width + self.size.height) as f64
+                    * std::f64::consts::PI)
+                    .acos()
+                    .abs(),
                 a: 1.0,
             }
         }
@@ -183,19 +235,22 @@ impl State {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
-
-        let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Render Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(self.visuals.color),
-                    store: true,
-                },
-            })],
-            depth_stencil_attachment: None,
-        });
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(self.visual_state.color),
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.draw(0..3, 0..1);
+        }
 
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));
